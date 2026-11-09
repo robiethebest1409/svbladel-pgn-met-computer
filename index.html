@@ -817,21 +817,27 @@ function sendEngine(command){
   if(engine) engine.postMessage(command);
 }
 
+
 function scheduleEngineAnalysis(){
-  if(!engineEnabled || !engineReady) return;
+
+  if(!engineEnabled || !engine) return;
 
   clearTimeout(engineTimer);
 
   engineTimer = setTimeout(function(){
-    engineReady = false;
+
     engineScore.textContent = 'Stelling analyseren...';
     engineBest.textContent = 'Beste vervolg: —';
     engineDepth.textContent = '';
 
+    engineReady = false;
+
     sendEngine('stop');
     sendEngine('isready');
+
   },250);
 }
+
 
 function formatEngineMoves(fen,pv){
   try{
