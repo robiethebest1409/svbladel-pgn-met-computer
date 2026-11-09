@@ -342,6 +342,33 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <button id="undo" disabled>Zet terug</button>
 </div>
 
+  
+<div class="controls">
+  <button id="engineToggle" class="secondary">
+    ♟ Computeranalyse aan
+  </button>
+</div>
+
+<div id="enginePanel" hidden>
+  <div style="font-weight:bold;text-align:center">
+    Stockfish 19 – Computeranalyse
+  </div>
+
+  <div id="engineDepth" style="text-align:center"></div>
+
+  <div style="height:16px;background:#263748;border-radius:5px;overflow:hidden;margin:8px 0">
+    <div id="evalWhite" style="width:50%;height:100%;background:#f4f1e8"></div>
+  </div>
+
+  <div id="engineScore" style="text-align:center">
+    Stockfish wordt gestart...
+  </div>
+
+  <div id="engineBest" style="text-align:center;margin-top:6px">
+    Beste vervolg: —
+  </div>
+</div>
+
 <div id="status">Partij wordt geladen...</div>
 <div id="moves"></div>
 
@@ -708,7 +735,7 @@ function selectSquare(square){
 }
 
 function renderMoves(){
-
+scheduleEngineAnalysis();
   movesEl.innerHTML = '';
 
   if(mode === 'analysis'){
@@ -762,6 +789,199 @@ function renderMoves(){
 
   scheduleHeightReport();
 }
+
+  
+/* STOCKFISH 19 - COMPUTERANALYSE */
+
+const engineButton = document.getElementById('engineToggle');
+const enginePanel = document.getElementById('enginePanel');
+const engineScore = document.getElementById('engineScore');
+const engineBest = document.getElementById('engineBest');
+const engineDepth = document.getElementById('engineDepth');
+const evalWhite = document.getElementById('evalWhite');
+
+let engine = null;
+let engineEnabled = false;
+let engineReady = false;
+let engineTimer = null;
+let engineFen = '';
+
+function currentEngineFen(){
+  if(mode === 'analysis' && analysisGame){
+    return analysisGame.fen();
+  }
+  return positions[index];
+}
+
+function sendEngine(command){
+  if(engine) engine.postMessage(command);
+}
+
+function scheduleEngineAnalysis(){
+  if(!engineEnabled || !engineReady) return;
+
+  clearTimeout(engineTimer);
+
+  engineTimer = setTimeout(function(){
+    engineReady = false;
+    engineScore.textContent = 'Stelling analyseren...';
+    engineBest.textContent = 'Beste vervolg: —';
+    engineDepth.textContent = '';
+
+    sendEngine('stop');
+    sendEngine('isready');
+  },250);
+}
+
+function formatEngineMoves(fen,pv){
+  try{
+    const tempGame = new Chess(fen);
+    const result = [];
+
+    pv.slice(0,8).forEach(function(uci){
+      const turn = tempGame.turn();
+      const moveNumber = Number(
+        tempGame.fen().split(' ')[5]
+      );
+
+      const move = tempGame.move({
+        from:uci.substring(0,2),
+        to:uci.substring(2,4),
+        promotion:uci[4] || 'q'
+      });
+
+      if(move){
+        result.push(
+          moveNumber +
+          (turn === 'w' ? '. ' : '... ') +
+          move.san
+        );
+      }
+    });
+
+    return result.join(' ');
+  }catch(error){
+    return pv.join(' ');
+  }
+}
+
+function handleEngineMessage(event){
+  const message = String(event.data || '').trim();
+
+  if(message === 'uciok'){
+    sendEngine('isready');
+    return;
+  }
+
+  if(message === 'readyok'){
+    if(!engineEnabled) return;
+
+    engineFen = currentEngineFen();
+    engineReady = true;
+
+    sendEngine('position fen ' + engineFen);
+    sendEngine('go depth 16');
+    return;
+  }
+
+  if(!engineEnabled || !engineReady) return;
+  if(!message.startsWith('info ')) return;
+
+  const score = message.match(
+    /\bscore (cp|mate) (-?\d+)/
+  );
+
+  const depth = message.match(/\bdepth (\d+)/);
+  const pv = message.match(/\bpv (.+)$/);
+
+  if(!score || !pv) return;
+
+  const whiteToMove =
+    engineFen.split(' ')[1] === 'w';
+
+  const value =
+    Number(score[2]) * (whiteToMove ? 1 : -1);
+
+  if(score[1] === 'cp'){
+    const pawns = value / 100;
+
+    engineScore.textContent =
+      'Evaluatie: ' +
+      (pawns > 0 ? '+' : '') +
+      pawns.toFixed(2);
+
+    evalWhite.style.width =
+      (50 + 50 * Math.tanh(pawns / 4)) + '%';
+
+  }else{
+    engineScore.textContent =
+      'Mat in ' + Math.abs(value) +
+      (value > 0 ? ' voor wit' : ' voor zwart');
+
+    evalWhite.style.width =
+      value > 0 ? '100%' : '0%';
+  }
+
+  if(depth){
+    engineDepth.textContent =
+      'Analysediepte: ' + depth[1];
+  }
+
+  engineBest.textContent =
+    'Beste vervolg: ' +
+    formatEngineMoves(
+      engineFen,
+      pv[1].trim().split(/\s+/)
+    );
+}
+
+engineButton.onclick = function(){
+  engineEnabled = !engineEnabled;
+
+  enginePanel.hidden = !engineEnabled;
+
+  engineButton.textContent = engineEnabled
+    ? '♟ Computeranalyse uit'
+    : '♟ Computeranalyse aan';
+
+  clearTimeout(engineTimer);
+
+  if(!engineEnabled){
+    engineReady = false;
+    sendEngine('stop');
+    return;
+  }
+
+  if(!engine){
+    try{
+      engine = new Worker(
+        new URL(
+          './stockfish-19-lite-single.js',
+          window.location.href
+        )
+      );
+
+      engine.onmessage = handleEngineMessage;
+
+      engine.onerror = function(){
+        engineScore.textContent =
+          'Stockfish kon niet worden geladen.';
+      };
+
+      engineScore.textContent =
+        'Stockfish wordt geladen...';
+
+      sendEngine('uci');
+
+    }catch(error){
+      engineScore.textContent =
+        'Fout: ' + error.message;
+    }
+
+  }else{
+    scheduleEngineAnalysis();
+  }
+};
 
 function show(n){
 
