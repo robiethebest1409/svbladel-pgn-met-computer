@@ -88,6 +88,49 @@ button:disabled{opacity:.45;cursor:not-allowed}
   text-align:center;
 }
 
+/* Schaakbord met verticale evaluatiebalk */
+#boardLayout{
+  display:flex;
+  justify-content:center;
+  align-items:stretch;
+  gap:6px;
+  width:100%;
+  max-width:290px;
+  margin:3px auto;
+}
+
+#boardLayout #board{
+  flex:1;
+  min-width:0;
+  margin:0;
+  max-width:none;
+}
+
+#verticalEval{
+  position:relative;
+  width:18px;
+  flex:0 0 18px;
+  background:#263748;
+  border-radius:4px;
+  overflow:hidden;
+}
+
+#verticalEvalWhite{
+  position:absolute;
+  bottom:0;
+  left:0;
+  width:100%;
+  height:50%;
+  background:#f4f1e8;
+  transition:height .3s ease;
+}
+
+@media(max-width:600px){
+  #boardLayout{
+    max-width:380px;
+  }
+}
+
 /* Schaakbord pc */
 #board{
   width:100%;
@@ -325,7 +368,12 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <b>Zwart:</b> <span id="blackName"></span>
 </p>
 
-<div id="board"></div>
+<div id="boardLayout">
+  <div id="verticalEval" hidden>
+    <div id="verticalEvalWhite"></div>
+  </div>
+  <div id="board"></div>
+</div>
 
 <div class="controls">
   <button id="first" title="Eerste zet">|◀</button>
@@ -799,6 +847,8 @@ const engineScore = document.getElementById('engineScore');
 const engineBest = document.getElementById('engineBest');
 const engineDepth = document.getElementById('engineDepth');
 const evalWhite = document.getElementById('evalWhite');
+  const verticalEval = document.getElementById('verticalEval');
+const verticalEvalWhite = document.getElementById('verticalEvalWhite');
 
 let engine = null;
 let engineEnabled = false;
@@ -908,25 +958,32 @@ function handleEngineMessage(event){
   const value =
     Number(score[2]) * (whiteToMove ? 1 : -1);
 
-  if(score[1] === 'cp'){
-    const pawns = value / 100;
+  
+if(score[1] === 'cp'){
+  const pawns = value / 100;
 
-    engineScore.textContent =
-      'Evaluatie: ' +
-      (pawns > 0 ? '+' : '') +
-      pawns.toFixed(2);
+  engineScore.textContent =
+    'Evaluatie: ' +
+    (pawns > 0 ? '+' : '') +
+    pawns.toFixed(2);
 
-    evalWhite.style.width =
-      (50 + 50 * Math.tanh(pawns / 4)) + '%';
+  const percentage =
+    (50 + 50 * Math.tanh(pawns / 4)) + '%';
 
-  }else{
-    engineScore.textContent =
-      'Mat in ' + Math.abs(value) +
-      (value > 0 ? ' voor wit' : ' voor zwart');
+  evalWhite.style.width = percentage;
+  verticalEvalWhite.style.height = percentage;
 
-    evalWhite.style.width =
-      value > 0 ? '100%' : '0%';
-  }
+}else{
+  engineScore.textContent =
+    'Mat in ' + Math.abs(value) +
+    (value > 0 ? ' voor wit' : ' voor zwart');
+
+  evalWhite.style.width =
+    value > 0 ? '100%' : '0%';
+
+  verticalEvalWhite.style.height =
+    value > 0 ? '100%' : '0%';
+}
 
   if(depth){
     engineDepth.textContent =
@@ -945,6 +1002,9 @@ engineButton.onclick = function(){
   engineEnabled = !engineEnabled;
 
   enginePanel.hidden = !engineEnabled;
+  verticalEval.hidden = !engineEnabled;
+board.resize();
+scheduleHeightReport();
 
   engineButton.textContent = engineEnabled
     ? '♟ Computeranalyse uit'
