@@ -123,7 +123,19 @@ button:disabled{opacity:.45;cursor:not-allowed}
   height:50%;
   background:#f4f1e8;
   transition:height .3s ease;
+  #verticalEvalScore{
+  position:absolute;
+  z-index:2;
+  left:50%;
+  bottom:5px;
+  transform:translateX(-50%) rotate(-90deg);
+  color:#17324d;
+  font-size:10px;
+  font-weight:bold;
+  white-space:nowrap;
+  text-shadow:0 0 2px #fff;
 }
+  
 
 @media(max-width:600px){
   #boardLayout{
@@ -369,10 +381,11 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </p>
 
 <div id="boardLayout">
-  <div id="verticalEval" hidden>
-    <div id="verticalEvalWhite"></div>
-  </div>
-  <div id="board"></div>
+ <div id="verticalEval" hidden>
+  <div id="verticalEvalWhite"></div>
+  <span id="verticalEvalScore">0.0</span>
+</div>
+  <div id="board">
 </div>
 
 <div class="controls">
@@ -404,9 +417,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
   <div id="engineDepth" style="text-align:center"></div>
 
-  <div style="height:16px;background:#263748;border-radius:5px;overflow:hidden;margin:8px 0">
-    <div id="evalWhite" style="width:50%;height:100%;background:#f4f1e8"></div>
-  </div>
+  
 
   <div id="engineScore" style="text-align:center">
     Stockfish wordt gestart...
@@ -846,9 +857,98 @@ const enginePanel = document.getElementById('enginePanel');
 const engineScore = document.getElementById('engineScore');
 const engineBest = document.getElementById('engineBest');
 const engineDepth = document.getElementById('engineDepth');
-const evalWhite = document.getElementById('evalWhite');
-  const verticalEval = document.getElementById('verticalEval');
+const verticalEval = document.getElementById('verticalEval');
 const verticalEvalWhite = document.getElementById('verticalEvalWhite');
+  const verticalEvalScore = document.getElementById('verticalEvalScore');
+  
+let bestMoveArrow = null;
+let currentBestMove = null;
+
+function drawBestMoveArrow(uci){
+
+  const boardElement = document.getElementById('board');
+
+  if(bestMoveArrow){
+    bestMoveArrow.remove();
+    bestMoveArrow = null;
+  }
+
+  if(!uci || uci.length < 4) return;
+
+  const from = uci.substring(0,2);
+  const to = uci.substring(2,4);
+
+  const fromSquare = boardElement.querySelector(
+    '[data-square="' + from + '"]'
+  );
+
+  const toSquare = boardElement.querySelector(
+    '[data-square="' + to + '"]'
+  );
+
+  if(!fromSquare || !toSquare) return;
+
+  const boardRect = boardElement.getBoundingClientRect();
+  const fromRect = fromSquare.getBoundingClientRect();
+  const toRect = toSquare.getBoundingClientRect();
+
+  const x1 = fromRect.left - boardRect.left + fromRect.width/2;
+  const y1 = fromRect.top - boardRect.top + fromRect.height/2;
+  const x2 = toRect.left - boardRect.left + toRect.width/2;
+  const y2 = toRect.top - boardRect.top + toRect.height/2;
+
+  const svg = document.createElementNS(
+    'http://www.w3.org/2000/svg','svg'
+  );
+
+  svg.setAttribute('id','bestMoveArrow');
+  svg.setAttribute(
+    'viewBox',
+    '0 0 ' + boardRect.width + ' ' + boardRect.height
+  );
+
+  const defs = document.createElementNS(
+    'http://www.w3.org/2000/svg','defs'
+  );
+
+  const marker = document.createElementNS(
+    'http://www.w3.org/2000/svg','marker'
+  );
+
+  marker.setAttribute('id','bestArrowHead');
+  marker.setAttribute('markerWidth','5');
+  marker.setAttribute('markerHeight','5');
+  marker.setAttribute('refX','3');
+  marker.setAttribute('refY','2.5');
+  marker.setAttribute('orient','auto');
+
+  const path = document.createElementNS(
+    'http://www.w3.org/2000/svg','path'
+  );
+
+  path.setAttribute('d','M0,0 L5,2.5 L0,5 Z');
+  path.setAttribute('fill','#29a745');
+
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  const line = document.createElementNS(
+    'http://www.w3.org/2000/svg','line'
+  );
+
+  line.setAttribute('x1',x1);
+  line.setAttribute('y1',y1);
+  line.setAttribute('x2',x2);
+  line.setAttribute('y2',y2);
+  line.setAttribute('marker-end','url(#bestArrowHead)');
+
+  svg.appendChild(line);
+  boardElement.appendChild(svg);
+
+  bestMoveArrow = svg;
+}
+
 
 let engine = null;
 let engineEnabled = false;
@@ -877,6 +977,7 @@ function scheduleEngineAnalysis(){
   engineTimer = setTimeout(function(){
 
     engineScore.textContent = 'Stelling analyseren...';
+    drawBestMoveArrow(null);
     engineBest.textContent = 'Beste vervolg: —';
     engineDepth.textContent = '';
 
@@ -970,19 +1071,22 @@ if(score[1] === 'cp'){
   const percentage =
     (50 + 50 * Math.tanh(pawns / 4)) + '%';
 
-  evalWhite.style.width = percentage;
+  
   verticalEvalWhite.style.height = percentage;
+  verticalEvalScore.textContent =
+  (pawns > 0 ? '+' : '') + pawns.toFixed(1);
 
 }else{
   engineScore.textContent =
     'Mat in ' + Math.abs(value) +
     (value > 0 ? ' voor wit' : ' voor zwart');
 
-  evalWhite.style.width =
-    value > 0 ? '100%' : '0%';
 
   verticalEvalWhite.style.height =
     value > 0 ? '100%' : '0%';
+  
+  verticalEvalScore.textContent =
+  (value > 0 ? 'M' : '-M') + Math.abs(value);
 }
 
   if(depth){
@@ -995,7 +1099,10 @@ if(score[1] === 'cp'){
     formatEngineMoves(
       engineFen,
       pv[1].trim().split(/\s+/)
+        currentBestMove = pv[1].trim().split(/\s+/)[0];
+drawBestMoveArrow(currentBestMove);
     );
+
 }
 
 engineButton.onclick = function(){
@@ -1015,6 +1122,7 @@ scheduleHeightReport();
   if(!engineEnabled){
     engineReady = false;
     sendEngine('stop');
+    drawBestMoveArrow(null);
     return;
   }
 
@@ -1364,6 +1472,7 @@ document.getElementById('flip').onclick = function(){
   board.flip();
   scheduleHeightReport();
 };
+  
 
 document.getElementById('replay').onclick = function(){
   setMode('replay');
@@ -1399,6 +1508,25 @@ playButton.onclick = function(){
     stopTimer();
     return;
   }
+  #board{
+  position:relative;
+}
+
+#bestMoveArrow{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;
+  z-index:10;
+}
+
+#bestMoveArrow line{
+  stroke:#29a745;
+  stroke-width:5;
+  stroke-linecap:round;
+  opacity:.8;
+}
 
   if(index>=history.length) show(0);
 
